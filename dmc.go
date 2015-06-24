@@ -84,9 +84,9 @@ func main() {
 			c := exec.Command("ssh", host, cmd)
 			out, err := c.CombinedOutput()
 			if err != nil {
-				e := fmt.Sprintf("%s[%s]$ %s: Error: %s", cfg.prefix, color(host, red, true), cmd, err)
+				e := fmt.Sprintf("%s[%s]$ %s: Error: %s\n", cfg.prefix, color(host, red, true), cmd, err)
 				if len(out) > 0 {
-					e = fmt.Sprintf("%s\n%s", e, string(out))
+					e = fmt.Sprintf("%s%s", e, string(out))
 				}
 				output <- e
 				return
