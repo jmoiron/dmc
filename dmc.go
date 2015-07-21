@@ -34,11 +34,13 @@ var cfg struct {
 	verbose    bool
 	interleave bool
 	prefix     string
+	hosts      string
 }
 
 func init() {
 	flag.BoolVar(&cfg.verbose, "v", false, "verbose output")
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
+	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	// flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
 	flag.Parse()
 }
@@ -49,29 +51,36 @@ func vprintf(format string, args ...interface{}) {
 	}
 }
 
-func main() {
-	var hosts []string
-	args := flag.Args()
-	if len(args) == 0 {
-		fmt.Println("usage: dmc <command>")
-		return
+func getHosts() []string {
+	if len(cfg.hosts) > 0 {
+		return strings.Split(cfg.hosts, ",")
 	}
 
+	var hosts []string
 	fi, _ := os.Stdin.Stat()
 	if (fi.Mode() & os.ModeCharDevice) != 0 {
-		fmt.Println("usage: you must pipe a list of hosts into dmc.")
-		return
+		fmt.Println("usage: you must pipe a list of hosts into dmc or use -hosts.")
+		return hosts
 	}
-
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
 		hosts = append(hosts, strings.Trim(s.Text(), "\n"))
 	}
 	if err := s.Err(); err != nil {
 		fmt.Printf("Error reading from stdin: %s\n", err)
+	}
+	return hosts
+
+}
+
+func main() {
+	args := flag.Args()
+	if len(args) == 0 {
+		fmt.Println("usage: dmc <command>")
 		return
 	}
 
+	hosts := getHosts()
 	cmd := strings.Join(args, " ")
 	vprintf("Running `%s` on %d hosts\n", cmd, len(hosts))
 
