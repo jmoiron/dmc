@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,12 +36,14 @@ var cfg struct {
 	interleave bool
 	prefix     string
 	hosts      string
+	dns        string
 }
 
 func init() {
 	flag.BoolVar(&cfg.verbose, "v", false, "verbose output")
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
+	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
 	// flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
 	flag.Parse()
 }
@@ -54,6 +57,14 @@ func vprintf(format string, args ...interface{}) {
 func getHosts() []string {
 	if len(cfg.hosts) > 0 {
 		return strings.Split(cfg.hosts, ",")
+	}
+	if len(cfg.dns) > 0 {
+		hosts, err := net.LookupHost(cfg.dns)
+		if err != nil {
+			fmt.Printf("Error looking up %s: %s\n", cfg.dns, err)
+			os.Exit(-1)
+		}
+		return hosts
 	}
 
 	var hosts []string
