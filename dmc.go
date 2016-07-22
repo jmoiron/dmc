@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 // dmc runs the command on all hosts passed via stdin simultaneously
@@ -23,7 +25,12 @@ const (
 	purple
 )
 
+var tty = terminal.IsTerminal(int(os.Stdout.Fd()))
+
 func color(s string, color int, bold bool) string {
+	if !tty {
+		return s
+	}
 	b := "01;"
 	if !bold {
 		b = ""
