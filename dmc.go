@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -45,6 +44,7 @@ var cfg struct {
 	prefix     string
 	hosts      string
 	dns        string
+	maxHosts   int
 }
 
 func init() {
@@ -52,6 +52,7 @@ func init() {
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
+	flag.IntVar(&cfg.maxHosts, "m", 1024, "Maximum number of hosts the command will run on in parallel")
 	// flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
 	flag.Parse()
 }
@@ -92,26 +93,6 @@ func getHosts() []string {
 
 }
 
-func getMaxHosts(hosts []string) (int, int) {
-	var maxHosts int
-	var err error
-	maxHostsStr := os.Getenv("MAX_HOSTS")
-	if len(maxHostsStr) <= 0 {
-		maxHosts = len(hosts)
-	} else {
-		maxHosts, err = strconv.Atoi(maxHostsStr)
-		if err != nil {
-			maxHosts = len(hosts)
-		}
-	}
-	groups := len(hosts) / maxHosts
-	if len(hosts) % maxHosts != 0 {
-		groups++
-	}
-
-	return maxHosts, groups
-}
-
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -130,7 +111,10 @@ func main() {
 	cmd := strings.Join(args, " ")
 	vprintf("Running `%s` on %d hosts\n", cmd, len(hosts))
 
-	maxHosts, groups := getMaxHosts(hosts)
+	groups := len(hosts) / cfg.maxHosts
+	if len(hosts) % cfg.maxHosts != 0 {
+		groups++
+	}
 
 	var wg sync.WaitGroup
 	var once sync.Once
@@ -142,8 +126,8 @@ func main() {
 	}
 
 	for i := 0; i < groups; i++ {
-		beginRange := maxHosts * i
-		endRange := min(maxHosts * (i + 1), len(hosts))
+		beginRange := cfg.maxHosts * i
+		endRange := min(cfg.maxHosts * (i + 1), len(hosts))
 		for _, host := range hosts[beginRange:endRange] {
 			go func(host string) {
 				defer wg.Done()
