@@ -44,6 +44,7 @@ var cfg struct {
 	prefix     string
 	hosts      string
 	dns        string
+	maxHosts   int
 }
 
 func init() {
@@ -51,6 +52,7 @@ func init() {
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
+	flag.IntVar(&cfg.maxHosts, "m", 1024, "Maximum number of hosts the command will run on in parallel")
 	// flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
 	flag.Parse()
 }
@@ -91,6 +93,13 @@ func getHosts() []string {
 
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
 	args := flag.Args()
 	if len(args) == 0 {
@@ -102,24 +111,40 @@ func main() {
 	cmd := strings.Join(args, " ")
 	vprintf("Running `%s` on %d hosts\n", cmd, len(hosts))
 
+	groups := len(hosts) / cfg.maxHosts
+	if len(hosts) % cfg.maxHosts != 0 {
+		groups++
+	}
+
 	var wg sync.WaitGroup
+	var once sync.Once
 	wg.Add(len(hosts))
 	output := make(chan string)
-	for _, host := range hosts {
-		go func(host string) {
-			defer wg.Done()
-			c := exec.Command("ssh", host, cmd)
-			out, err := c.CombinedOutput()
-			if err != nil {
-				e := fmt.Sprintf("%s[%s]$ %s: Error: %s\n", cfg.prefix, color(host, red, true), cmd, err)
-				if len(out) > 0 {
-					e = fmt.Sprintf("%s%s", e, string(out))
+	return_code := 0
+	setError := func() {
+		return_code = 1
+	}
+
+	for i := 0; i < groups; i++ {
+		beginRange := cfg.maxHosts * i
+		endRange := min(cfg.maxHosts * (i + 1), len(hosts))
+		for _, host := range hosts[beginRange:endRange] {
+			go func(host string) {
+				defer wg.Done()
+				c := exec.Command("ssh", host, cmd)
+				out, err := c.CombinedOutput()
+				if err != nil {
+					e := fmt.Sprintf("%s[%s]$ %s: Error: %s\n", cfg.prefix, color(host, red, true), cmd, err)
+					if len(out) > 0 {
+						e = fmt.Sprintf("%s%s", e, string(out))
+					}
+					output <- e
+					once.Do(setError)
+					return
 				}
-				output <- e
-				return
-			}
-			output <- fmt.Sprintf("%s[%s]$ %s\n%s", cfg.prefix, color(host, green, true), cmd, string(out))
-		}(host)
+				output <- fmt.Sprintf("%s[%s]$ %s\n%s", cfg.prefix, color(host, green, true), cmd, string(out))
+			}(host)
+		}
 	}
 
 	go func() {
@@ -131,4 +156,5 @@ func main() {
 		fmt.Print(o)
 	}
 
+	os.Exit(return_code)
 }
