@@ -30,6 +30,14 @@ const (
 
 var tty = terminal.IsTerminal(int(os.Stdout.Fd()))
 
+var last int64 = white
+
+func cycle() int {
+	col := atomic.LoadInt64(&last)
+	atomic.AddInt64(&last, 1)
+	return int(col)
+}
+
 func color(s string, color int, bold bool) string {
 	if !tty {
 		return s
@@ -113,59 +121,28 @@ func do(host, cmd string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// LineBufferedWriter is a WriteCloser that buffers lines from multiple
-// threads and writes them as available.
-type LineBufferedWriter struct {
-	out    io.Writer
-	buf    chan string
-	wg     sync.WaitGroup
-	prefix string
+type LineWriter interface {
+	WriteLine(string) error
 }
 
-func NewLineBufferedWriter(w io.Writer, prefix string) *LineBufferedWriter {
-	b := &LineBufferedWriter{out: w, buf: make(chan string, 256), prefix: prefix}
-	b.run()
-	return b
-}
-
-func (w *LineBufferedWriter) run() {
-	w.wg.Add(1)
-	go func() {
-		for l := range w.buf {
-			w.out.Write([]byte(l))
-		}
-		w.wg.Done()
-	}()
-}
-
-// Close flushes the rest of the output and closes the writer.
-// It is not legal to write to this LineBufferedWriter after closing.
-func (w *LineBufferedWriter) Close() error {
-	close(w.buf)
-	w.wg.Wait()
-	return nil
-}
-
-// Write lines to this buffered writer.  Lines may be interleaved with
-// others being written at "the same time", as each line is treated as
-// an individual write.
-func (w LineBufferedWriter) Write(b []byte) (n int, err error) {
-	r := bufio.NewScanner(bytes.NewReader(b))
-	for r.Scan() {
-		w.buf <- w.prefix + r.Text() + "\n"
-	}
-	if err := r.Err(); err != nil {
-		return len(b), err
-	}
-	return len(b), nil
-}
-
-func doi(host, cmd string, out io.Writer) error {
+// doi runs cmd on host, writing lines to out as available.  It cycles through
+// colors so that hosts can be differentiated as well as possible.
+func doi(host, cmd string, out LineWriter) error {
 	c := exec.Command("ssh", host, cmd)
-	outw := NewLineBufferedWriter(out, fmt.Sprintf("[%s] ", host))
-	c.Stdout = outw
-	c.Stderr = outw
-	return c.Run()
+	rdr, wrt := io.Pipe()
+	c.Stdout = wrt
+	c.Stderr = wrt
+	var err error
+	go func() {
+		err = c.Run()
+		wrt.Close()
+	}()
+	col := cycle()
+	r := bufio.NewScanner(rdr)
+	for r.Scan() {
+		out.WriteLine(fmt.Sprintf("[%s] %s\n", color(host, col, false), string(r.Bytes())))
+	}
+	return err
 }
 
 func main() {
@@ -198,8 +175,9 @@ func main() {
 			// if we're interleaving output it's slightly different
 			// so we just branch here
 			if cfg.interleave {
+				stdout := NewSyncLineWriter(os.Stdout)
 				for host := range hostch {
-					err := doi(host, cmd, os.Stdout)
+					err := doi(host, cmd, stdout)
 					if err != nil {
 						atomic.StoreInt64(&code, 1)
 					}
