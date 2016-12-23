@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -28,6 +29,14 @@ const (
 )
 
 var tty = terminal.IsTerminal(int(os.Stdout.Fd()))
+
+var last int64 = white
+
+func cycle() int {
+	col := atomic.LoadInt64(&last)
+	atomic.AddInt64(&last, 1)
+	return int(col)
+}
 
 func color(s string, color int, bold bool) string {
 	if !tty {
@@ -55,7 +64,7 @@ func init() {
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
 	flag.IntVar(&cfg.threads, "n", 512, "threads to run in parallel")
-	// flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
+	flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
 	flag.Parse()
 }
 
@@ -112,6 +121,30 @@ func do(host, cmd string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+type LineWriter interface {
+	WriteLine(string) error
+}
+
+// doi runs cmd on host, writing lines to out as available.  It cycles through
+// colors so that hosts can be differentiated as well as possible.
+func doi(host, cmd string, out LineWriter) error {
+	c := exec.Command("ssh", host, cmd)
+	rdr, wrt := io.Pipe()
+	c.Stdout = wrt
+	c.Stderr = wrt
+	var err error
+	go func() {
+		err = c.Run()
+		wrt.Close()
+	}()
+	col := cycle()
+	r := bufio.NewScanner(rdr)
+	for r.Scan() {
+		out.WriteLine(fmt.Sprintf("[%s] %s\n", color(host, col, false), string(r.Bytes())))
+	}
+	return err
+}
+
 func main() {
 	args := flag.Args()
 	if len(args) == 0 {
@@ -139,11 +172,23 @@ func main() {
 
 	for i := 0; i < par; i++ {
 		go func() {
-			for host := range hostch {
-				out, err := do(host, cmd)
-				output <- string(out)
-				if err != nil {
-					atomic.StoreInt64(&code, 1)
+			// if we're interleaving output it's slightly different
+			// so we just branch here
+			if cfg.interleave {
+				stdout := NewSyncLineWriter(os.Stdout)
+				for host := range hostch {
+					err := doi(host, cmd, stdout)
+					if err != nil {
+						atomic.StoreInt64(&code, 1)
+					}
+				}
+			} else {
+				for host := range hostch {
+					out, err := do(host, cmd)
+					output <- string(out)
+					if err != nil {
+						atomic.StoreInt64(&code, 1)
+					}
 				}
 			}
 			wg.Done()
