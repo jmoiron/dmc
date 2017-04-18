@@ -52,6 +52,7 @@ func color(s string, color int, bold bool) string {
 var cfg struct {
 	verbose    bool
 	interleave bool
+	compress   bool
 	quiet      bool
 	prefix     string
 	hosts      string
@@ -62,6 +63,7 @@ var cfg struct {
 func init() {
 	flag.BoolVar(&cfg.verbose, "v", false, "verbose output")
 	flag.BoolVar(&cfg.quiet, "q", false, "do not add host prefixes to command output")
+	flag.BoolVar(&cfg.compress, "C", false, "enable transparent ssh compression")
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
@@ -114,9 +116,16 @@ func getHosts() []string {
 
 }
 
+func ssh(host, cmd string) *exec.Cmd {
+	if cfg.compress {
+		return exec.Command("ssh", "-C", host, cmd)
+	}
+	return exec.Command("ssh", host, cmd)
+}
+
 // do runs cmd on host, writing its output to out.
 func do(host, cmd string) ([]byte, error) {
-	c := exec.Command("ssh", host, cmd)
+	c := ssh(host, cmd)
 	output, err := c.CombinedOutput()
 	var buf bytes.Buffer
 
@@ -138,7 +147,7 @@ type LineWriter interface {
 // doi runs cmd on host, writing lines to out as available.  It cycles through
 // colors so that hosts can be differentiated as well as possible.
 func doi(host, cmd string, out LineWriter) error {
-	c := exec.Command("ssh", host, cmd)
+	c := ssh(host, cmd)
 	rdr, wrt := io.Pipe()
 	c.Stdout = wrt
 	c.Stderr = wrt
