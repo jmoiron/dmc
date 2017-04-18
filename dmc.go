@@ -52,6 +52,7 @@ func color(s string, color int, bold bool) string {
 var cfg struct {
 	verbose    bool
 	interleave bool
+	quiet      bool
 	prefix     string
 	hosts      string
 	dns        string
@@ -60,6 +61,7 @@ var cfg struct {
 
 func init() {
 	flag.BoolVar(&cfg.verbose, "v", false, "verbose output")
+	flag.BoolVar(&cfg.quiet, "q", false, "do not add host prefixes to command output")
 	flag.StringVar(&cfg.prefix, "p", "", "prefix for command echo")
 	flag.StringVar(&cfg.hosts, "hosts", "", "list of hosts")
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
@@ -72,6 +74,14 @@ func vprintf(format string, args ...interface{}) {
 	if cfg.verbose {
 		fmt.Printf(format, args...)
 	}
+}
+
+// hostStr returns a host string.  If quiet mode is on it returns the empty string.
+func hostStr(host string, c int, bold bool) string {
+	if cfg.quiet {
+		return ""
+	}
+	return fmt.Sprintf("[%s]", color(host, c, bold))
 }
 
 func getHosts() []string {
@@ -111,13 +121,13 @@ func do(host, cmd string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	if err != nil {
-		fmt.Fprintf(&buf, "%s[%s]$ %s: Error: %s\n", cfg.prefix, color(host, red, true), cmd, err)
+		fmt.Fprintf(&buf, "%s%s$ %s: Error: %s\n", cfg.prefix, hostStr(host, red, true), cmd, err)
 		if len(output) > 0 {
 			buf.Write(output)
 		}
 		return buf.Bytes(), err
 	}
-	fmt.Fprintf(&buf, "%s[%s]$ %s\n%s", cfg.prefix, color(host, green, true), cmd, string(output))
+	fmt.Fprintf(&buf, "%s%s$ %s\n%s", cfg.prefix, hostStr(host, green, true), cmd, string(output))
 	return buf.Bytes(), nil
 }
 
@@ -140,7 +150,7 @@ func doi(host, cmd string, out LineWriter) error {
 	col := cycle()
 	r := bufio.NewScanner(rdr)
 	for r.Scan() {
-		out.WriteLine(fmt.Sprintf("[%s] %s\n", color(host, col, false), string(r.Bytes())))
+		out.WriteLine(fmt.Sprintf("%s%s\n", hostStr(host, col, false), string(r.Bytes())))
 	}
 	return err
 }
