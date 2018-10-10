@@ -58,6 +58,7 @@ var cfg struct {
 	hosts      string
 	dns        string
 	threads    int
+	ssh        string
 }
 
 func init() {
@@ -69,7 +70,12 @@ func init() {
 	flag.StringVar(&cfg.dns, "d", "", "dns name for multi-hosts")
 	flag.IntVar(&cfg.threads, "n", 512, "threads to run in parallel")
 	flag.BoolVar(&cfg.interleave, "i", false, "interleave output as it is available")
+	flag.StringVar(&cfg.ssh, "ssh", "ssh", "remote shell command (default: ssh)")
 	flag.Parse()
+
+	if cfg.ssh != "ssh" && len(os.Getenv("DMC_SSH")) > 0 {
+		cfg.ssh = os.Getenv("DMC_SSH")
+	}
 }
 
 func vprintf(format string, args ...interface{}) {
@@ -117,15 +123,23 @@ func getHosts() []string {
 }
 
 func ssh(host, cmd string) *exec.Cmd {
+	cc := strings.Split(cfg.ssh, " ")
 	if cfg.compress {
-		return exec.Command("ssh", "-C", host, cmd)
+		cc = append(cc, "-C")
 	}
-	return exec.Command("ssh", host, cmd)
+	cc = append(cc, host)
+	if cfg.ssh != "ssh" {
+		cc = append(cc, strings.Split(cmd, " ")...)
+	} else {
+		cc = append(cc, cmd)
+	}
+	return exec.Command(cc[0], cc[1:]...)
 }
 
 // do runs cmd on host, writing its output to out.
 func do(host, cmd string) ([]byte, error) {
 	c := ssh(host, cmd)
+	vprintf("cmd: %+v\n", c.Args)
 	output, err := c.CombinedOutput()
 	var buf bytes.Buffer
 
