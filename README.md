@@ -38,7 +38,7 @@ Usage of dmc:
 dmc runs all commands in parallel but prints the full output for each system as
 it becomes available, making it fast but also easy to read.
 
-# license
+## license
 Copyright 2018 jmoiron
 
 Licensed under the Apache License, Version 2.0 (the "License");
